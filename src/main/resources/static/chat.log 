@@ -1,275 +1,585 @@
-To build a RESTful API for a simple social media application using Spring Boot, Hibernate, and PostgreSQL, we can follow these steps:
+Absolutely, let's tackle this together step-by-step. Here’s a breakdown of how we can approach this project to meet each requirement, and we’ll structure each step with code, testing, and documentation for easy review. 
 
-### Step 1: Set up the Spring Boot Application
+Here’s how we can break down the tasks to build this RESTful API:
 
-1. **Create a new Spring Boot project:**
-   - You can use Spring Initializr to create the project, selecting dependencies such as:
-     - Spring Web
-     - Spring Data JPA
-     - PostgreSQL Driver
-     - Spring Boot DevTools (optional for development convenience)
+### Task Breakdown
 
-   Alternatively, if you are using Maven, here is a sample `pom.xml` setup:
+1. **Project Setup**: Initialize the Spring Boot application, set up dependencies, and configure Hibernate with PostgreSQL.
+2. **Entity Creation**: Define the `User`, `Post`, and `Like` entities with proper relationships.
+3. **Repository Layer**: Create repositories for `User` and `Post` to manage database interactions.
+4. **Service Layer**: Implement services for business logic (e.g., creating posts, following users, and liking posts).
+5. **Controller Layer**: Build the REST endpoints to interact with the application.
+6. **Testing**: Add unit tests to achieve >80% coverage.
+7. **Quality Checks**: Integrate quality checks like style, complexity, and code coverage tools.
+8. **Documentation (README)**: Prepare a detailed README with setup instructions, task feedback, and a summary of ChatGPT’s help.
+
+Let’s start by setting up the Spring Boot project with necessary dependencies.
+
+---
+
+### Step 1: Project Setup
+
+1. **Create a Spring Boot Application**
+   - Set up a new project (Spring Boot with Maven) and add dependencies for Spring Web, JPA, and PostgreSQL.
+
+2. **Update `pom.xml` with Dependencies**
 
    ```xml
    <dependencies>
+       <!-- Spring Boot Web Starter -->
        <dependency>
            <groupId>org.springframework.boot</groupId>
            <artifactId>spring-boot-starter-web</artifactId>
        </dependency>
+       <!-- Spring Data JPA for Hibernate -->
        <dependency>
            <groupId>org.springframework.boot</groupId>
            <artifactId>spring-boot-starter-data-jpa</artifactId>
        </dependency>
+       <!-- PostgreSQL Driver -->
        <dependency>
            <groupId>org.postgresql</groupId>
            <artifactId>postgresql</artifactId>
+           <version>42.2.24</version>
        </dependency>
+       <!-- Lombok (optional for reducing boilerplate code) -->
+       <dependency>
+           <groupId>org.projectlombok</groupId>
+           <artifactId>lombok</artifactId>
+           <version>1.18.22</version>
+           <scope>provided</scope>
+       </dependency>
+       <!-- Spring Boot Test for Unit Testing -->
        <dependency>
            <groupId>org.springframework.boot</groupId>
-           <artifactId>spring-boot-starter-validation</artifactId>
+           <artifactId>spring-boot-starter-test</artifactId>
+           <scope>test</scope>
        </dependency>
    </dependencies>
    ```
 
-2. **Configure `application.properties` for PostgreSQL:**
-   In your `src/main/resources/application.properties`, add:
+3. **Configure Database in `application.properties`**
 
    ```properties
-   spring.datasource.url=jdbc:postgresql://localhost:5432/socialmedia
-   spring.datasource.username=postgres
-   spring.datasource.password=yourpassword
+   spring.datasource.url=jdbc:postgresql://localhost:5432/social_media_db
+   spring.datasource.username=yourUsername
+   spring.datasource.password=yourPassword
    spring.jpa.hibernate.ddl-auto=update
    spring.jpa.show-sql=true
+   spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
    ```
 
-   Ensure PostgreSQL is running locally or configure it for your environment.
+---
 
-### Step 2: Create the User and Post Entity
+### Step 2: Entity Creation
 
-1. **User Entity:**
-   Create an entity to represent users. This will include basic fields like `id`, `username`, and `email`.
+Define the following entities: `User`, `Post`, and `Like`. These will have the necessary fields and relationships.
+
+1. **User Entity**
 
    ```java
    @Entity
    public class User {
-
        @Id
        @GeneratedValue(strategy = GenerationType.IDENTITY)
        private Long id;
-
-       @NotBlank
        private String username;
-
-       @NotBlank
        private String email;
 
-       @OneToMany(mappedBy = "author")
-       private List<Post> posts;
+       @OneToMany(mappedBy = "author", cascade = CascadeType.ALL, orphanRemoval = true)
+       private List<Post> posts = new ArrayList<>();
 
-       // Getters and setters...
+       // followers and following
+       @ManyToMany
+       private Set<User> following = new HashSet<>();
+       
+       // getters and setters
    }
    ```
 
-2. **Post Entity:**
-   Create an entity for posts, with fields like `id`, `title`, `body`, and a reference to the user who created it.
+2. **Post Entity**
 
    ```java
    @Entity
    public class Post {
+       @Id
+       @GeneratedValue(strategy = GenerationType.IDENTITY)
+       private Long id;
+       private String title;
+       private String body;
 
+       @ManyToOne
+       @JoinColumn(name = "author_id", nullable = false)
+       private User author;
+
+       @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
+       private List<Like> likes = new ArrayList<>();
+
+       // getters and setters
+   }
+   ```
+
+3. **Like Entity**
+
+   ```java
+   @Entity
+   public class Like {
        @Id
        @GeneratedValue(strategy = GenerationType.IDENTITY)
        private Long id;
 
-       @NotBlank
-       private String title;
-
-       @NotBlank
-       private String body;
+       @ManyToOne
+       @JoinColumn(name = "user_id", nullable = false)
+       private User user;
 
        @ManyToOne
-       @JoinColumn(name = "user_id")
-       private User author;
+       @JoinColumn(name = "post_id", nullable = false)
+       private Post post;
 
-       @ManyToMany
-       @JoinTable(
-           name = "post_likes",
-           joinColumns = @JoinColumn(name = "post_id"),
-           inverseJoinColumns = @JoinColumn(name = "user_id"))
-       private Set<User> likedBy;
-
-       // Getters and setters...
+       // getters and setters
    }
    ```
 
-### Step 3: Create the Repositories
+---
 
-1. **UserRepository:**
+### Step 3: Repository Layer
+
+1. **UserRepository**
 
    ```java
-   @Repository
    public interface UserRepository extends JpaRepository<User, Long> {
        Optional<User> findByUsername(String username);
    }
    ```
 
-2. **PostRepository:**
+2. **PostRepository**
 
    ```java
-   @Repository
    public interface PostRepository extends JpaRepository<Post, Long> {
-       List<Post> findByAuthor(User author);
+       List<Post> findAllByAuthorId(Long authorId);
    }
    ```
 
-### Step 4: Create the Services
-
-1. **UserService:**
-   Create a service to manage user-related operations (e.g., register user, get user by username).
+3. **LikeRepository**
 
    ```java
-   @Service
-   public class UserService {
-
-       @Autowired
-       private UserRepository userRepository;
-
-       public User registerUser(User user) {
-           return userRepository.save(user);
-       }
-
-       public Optional<User> getUserByUsername(String username) {
-           return userRepository.findByUsername(username);
-       }
+   public interface LikeRepository extends JpaRepository<Like, Long> {
+       Optional<Like> findByUserAndPost(User user, Post post);
    }
    ```
-
-2. **PostService:**
-   Create a service to handle operations related to posts (e.g., create post, like post, follow user).
-
-   ```java
-   @Service
-   public class PostService {
-
-       @Autowired
-       private PostRepository postRepository;
-
-       @Autowired
-       private UserService userService;
-
-       public Post createPost(Long userId, Post post) {
-           User user = userService.getUserById(userId).orElseThrow(() -> new RuntimeException("User not found"));
-           post.setAuthor(user);
-           return postRepository.save(post);
-       }
-
-       public void likePost(Long userId, Long postId) {
-           Post post = postRepository.findById(postId).orElseThrow(() -> new RuntimeException("Post not found"));
-           User user = userService.getUserById(userId).orElseThrow(() -> new RuntimeException("User not found"));
-           post.getLikedBy().add(user);
-           postRepository.save(post);
-       }
-   }
-   ```
-
-### Step 5: Create the Controllers
-
-1. **UserController:**
-   Create an API controller to manage users.
-
-   ```java
-   @RestController
-   @RequestMapping("/users")
-   public class UserController {
-
-       @Autowired
-       private UserService userService;
-
-       @PostMapping("/register")
-       public ResponseEntity<User> registerUser(@RequestBody User user) {
-           User newUser = userService.registerUser(user);
-           return ResponseEntity.status(HttpStatus.CREATED).body(newUser);
-       }
-   }
-   ```
-
-2. **PostController:**
-   Create an API controller for managing posts.
-
-   ```java
-   @RestController
-   @RequestMapping("/posts")
-   public class PostController {
-
-       @Autowired
-       private PostService postService;
-
-       @PostMapping("/{userId}/create")
-       public ResponseEntity<Post> createPost(@PathVariable Long userId, @RequestBody Post post) {
-           Post createdPost = postService.createPost(userId, post);
-           return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
-       }
-
-       @PostMapping("/{postId}/like/{userId}")
-       public ResponseEntity<Void> likePost(@PathVariable Long postId, @PathVariable Long userId) {
-           postService.likePost(userId, postId);
-           return ResponseEntity.status(HttpStatus.OK).build();
-       }
-   }
-   ```
-
-### Step 6: Test the Application
-
-1. **Test REST APIs:**
-   Use tools like Postman to test the API endpoints:
-   - Register a new user.
-   - Create a new post.
-   - Like a post.
-
-2. **Unit Tests:**
-   Create unit tests for the service layer and controllers using JUnit and Mockito.
-
-   Example:
-
-   ```java
-   @RunWith(SpringRunner.class)
-   @SpringBootTest
-   public class PostServiceTest {
-
-       @Mock
-       private PostRepository postRepository;
-
-       @Mock
-       private UserService userService;
-
-       @InjectMocks
-       private PostService postService;
-
-       @Test
-       public void testCreatePost() {
-           // Setup mocks and test createPost() method.
-       }
-   }
-   ```
-
-### Step 7: Document in `README.md`
-
-Include the following sections in the `README.md`:
-
-- Project Overview
-- Dependencies
-- How to run the application (including PostgreSQL setup)
-- API Documentation (using Swagger or manual documentation)
-- Testing instructions
 
 ---
 
-### Short Feedback for the Task (Example)
-- **Was it easy to complete the task using AI?** Yes, the AI provided a structured approach to building the application with clear explanations.
-- **How long did task take you to complete?** It took about 4 hours to implement the basic functionality and test it.
-- **Was the code ready to run after generation? What did you have to change to make it usable?** The code was mostly ready. I had to modify some paths in the configuration and update the `application.properties` to match my local setup.
-- **Which challenges did you face during completion of the task?** The main challenge was setting up the PostgreSQL database and making sure the relationships in the entities were configured correctly.
-- **Which specific prompts you learned as a good practice to complete the task?** Using Spring Boot with PostgreSQL and ensuring proper entity relationships (e.g., `@ManyToOne`, `@ManyToMany`).
+### Step 4: Service Layer
 
-Feel free to ask if you need further clarification on any of the steps!
+We'll define services for each primary action: creating posts, following users, and liking posts.
+
+1. **UserService** (for user-related actions like following)
+2. **PostService** (for post CRUD operations)
+3. **LikeService** (for managing likes on posts)
+
+---
+
+### Step 5: Controller Layer
+
+Expose endpoints for:
+
+- User registration and following
+- Creating and fetching posts
+- Liking posts
+
+---
+
+### Step 6: Testing and Code Quality Checks
+
+- Set up unit tests for each service.
+- Ensure coverage >80%.
+- Use quality tools like Checkstyle for code styling.
+
+---
+
+### Step 7: Documentation (README)
+
+The `README.md` will include:
+- Project description, setup instructions, and usage.
+- Acceptance criteria self-review.
+- Task feedback as outlined in your criteria.
+
+---
+
+I’ll walk you through each part in detail to ensure you have a well-documented and working project. Let’s start by implementing the entities and basic repository setup.
+
+
+Great! Let’s dive into the Service layer. Each service will handle the business logic for user-related actions, managing posts, and handling likes.
+
+### Step 4: Service Layer
+
+We’ll create three service classes: `UserService`, `PostService`, and `LikeService`. Each service will use the corresponding repository to interact with the database and provide the necessary functionality.
+
+#### 1. UserService
+
+The `UserService` handles user-related operations, such as registering users and following other users.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Optional;
+
+@Service
+public class UserService {
+    private final UserRepository userRepository;
+
+    @Autowired
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    public User registerUser(String username, String email) {
+        User user = new User();
+        user.setUsername(username);
+        user.setEmail(email);
+        return userRepository.save(user);
+    }
+
+    @Transactional
+    public void followUser(Long userId, Long targetUserId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        User targetUser = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new RuntimeException("Target user not found"));
+        user.getFollowing().add(targetUser);
+        userRepository.save(user);
+    }
+
+    public Optional<User> findUserByUsername(String username) {
+        return userRepository.findByUsername(username);
+    }
+}
+```
+
+- **registerUser**: Creates and saves a new user.
+- **followUser**: Adds a user to another user’s `following` set.
+- **findUserByUsername**: Retrieves a user by their username.
+
+#### 2. PostService
+
+The `PostService` manages operations related to posts, such as creating and retrieving posts.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class PostService {
+    private final PostRepository postRepository;
+    private final UserRepository userRepository;
+
+    @Autowired
+    public PostService(PostRepository postRepository, UserRepository userRepository) {
+        this.postRepository = postRepository;
+        this.userRepository = userRepository;
+    }
+
+    public Post createPost(Long userId, String title, String body) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Post post = new Post();
+        post.setTitle(title);
+        post.setBody(body);
+        post.setAuthor(user);
+        return postRepository.save(post);
+    }
+
+    public List<Post> getPostsByUser(Long userId) {
+        return postRepository.findAllByAuthorId(userId);
+    }
+
+    public List<Post> getAllPosts() {
+        return postRepository.findAll();
+    }
+}
+```
+
+- **createPost**: Creates a new post by a user.
+- **getPostsByUser**: Retrieves all posts by a specific user.
+- **getAllPosts**: Retrieves all posts.
+
+#### 3. LikeService
+
+The `LikeService` manages operations related to likes on posts, such as liking and unliking posts.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class LikeService {
+    private final LikeRepository likeRepository;
+    private final UserRepository userRepository;
+    private final PostRepository postRepository;
+
+    @Autowired
+    public LikeService(LikeRepository likeRepository, UserRepository userRepository, PostRepository postRepository) {
+        this.likeRepository = likeRepository;
+        this.userRepository = userRepository;
+        this.postRepository = postRepository;
+    }
+
+    public void likePost(Long userId, Long postId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new RuntimeException("Post not found"));
+
+        if (likeRepository.findByUserAndPost(user, post).isPresent()) {
+            throw new RuntimeException("Post already liked by the user");
+        }
+
+        Like like = new Like();
+        like.setUser(user);
+        like.setPost(post);
+        likeRepository.save(like);
+    }
+
+    public void unlikePost(Long userId, Long postId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new RuntimeException("Post not found"));
+
+        Like like = likeRepository.findByUserAndPost(user, post)
+                .orElseThrow(() -> new RuntimeException("Like not found"));
+
+        likeRepository.delete(like);
+    }
+}
+```
+
+- **likePost**: Allows a user to like a post if they haven’t liked it already.
+- **unlikePost**: Allows a user to unlike a post if they’ve previously liked it.
+
+### Summary
+
+With these services:
+- `UserService` handles user registration and following.
+- `PostService` manages creating and retrieving posts.
+- `LikeService` provides functionality to like and unlike posts.
+
+Each of these services can now be connected to a controller layer, where we’ll expose endpoints to interact with these features. Let me know if you’re ready to move on to the controller layer or if you’d like to add any additional functionality.
+
+Alright, in Step 5, we’ll create the **Controller Layer** to expose RESTful endpoints for our application’s features. Each controller will map HTTP requests to service methods, allowing users to interact with the application by creating posts, following others, and liking posts.
+
+### Step 5: Controller Layer
+
+We'll create three controllers:
+1. **UserController** - Handles user-related operations.
+2. **PostController** - Manages posts.
+3. **LikeController** - Handles likes on posts.
+
+Each controller will define endpoints for the operations we implemented in the service layer.
+
+#### 1. UserController
+
+The `UserController` will provide endpoints for user registration and following other users.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    private final UserService userService;
+
+    @Autowired
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<User> registerUser(@RequestParam String username, @RequestParam String email) {
+        User user = userService.registerUser(username, email);
+        return new ResponseEntity<>(user, HttpStatus.CREATED);
+    }
+
+    @PostMapping("/{userId}/follow/{targetUserId}")
+    public ResponseEntity<String> followUser(@PathVariable Long userId, @PathVariable Long targetUserId) {
+        userService.followUser(userId, targetUserId);
+        return new ResponseEntity<>("User followed successfully", HttpStatus.OK);
+    }
+}
+```
+
+- **`/register`** (`POST`): Registers a new user with a username and email.
+- **`/{userId}/follow/{targetUserId}`** (`POST`): Allows a user to follow another user.
+
+#### 2. PostController
+
+The `PostController` provides endpoints to create posts and view all posts or posts by a specific user.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/posts")
+public class PostController {
+    private final PostService postService;
+
+    @Autowired
+    public PostController(PostService postService) {
+        this.postService = postService;
+    }
+
+    @PostMapping
+    public ResponseEntity<Post> createPost(@RequestParam Long userId, @RequestParam String title, @RequestParam String body) {
+        Post post = postService.createPost(userId, title, body);
+        return new ResponseEntity<>(post, HttpStatus.CREATED);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<Post>> getAllPosts() {
+        List<Post> posts = postService.getAllPosts();
+        return new ResponseEntity<>(posts, HttpStatus.OK);
+    }
+
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<List<Post>> getPostsByUser(@PathVariable Long userId) {
+        List<Post> posts = postService.getPostsByUser(userId);
+        return new ResponseEntity<>(posts, HttpStatus.OK);
+    }
+}
+```
+
+- **`/`** (`POST`): Creates a new post with a `userId`, `title`, and `body`.
+- **`/`** (`GET`): Retrieves all posts.
+- **`/user/{userId}`** (`GET`): Retrieves all posts by a specific user.
+
+#### 3. LikeController
+
+The `LikeController` provides endpoints to like and unlike posts.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/likes")
+public class LikeController {
+    private final LikeService likeService;
+
+    @Autowired
+    public LikeController(LikeService likeService) {
+        this.likeService = likeService;
+    }
+
+    @PostMapping("/{userId}/like/{postId}")
+    public ResponseEntity<String> likePost(@PathVariable Long userId, @PathVariable Long postId) {
+        likeService.likePost(userId, postId);
+        return new ResponseEntity<>("Post liked successfully", HttpStatus.OK);
+    }
+
+    @DeleteMapping("/{userId}/unlike/{postId}")
+    public ResponseEntity<String> unlikePost(@PathVariable Long userId, @PathVariable Long postId) {
+        likeService.unlikePost(userId, postId);
+        return new ResponseEntity<>("Post unliked successfully", HttpStatus.OK);
+    }
+}
+```
+
+- **`/{userId}/like/{postId}`** (`POST`): Allows a user to like a post.
+- **`/{userId}/unlike/{postId}`** (`DELETE`): Allows a user to unlike a post.
+
+### Summary of Endpoints
+
+| HTTP Method | Endpoint                         | Description                          |
+|-------------|----------------------------------|--------------------------------------|
+| `POST`      | `/api/users/register`            | Register a new user                 |
+| `POST`      | `/api/users/{userId}/follow/{targetUserId}` | Follow another user |
+| `POST`      | `/api/posts`                     | Create a new post                   |
+| `GET`       | `/api/posts`                     | Get all posts                       |
+| `GET`       | `/api/posts/user/{userId}`       | Get posts by a specific user        |
+| `POST`      | `/api/likes/{userId}/like/{postId}` | Like a post                        |
+| `DELETE`    | `/api/likes/{userId}/unlike/{postId}` | Unlike a post                    |
+
+This completes our controller layer, allowing the app to handle key social media actions like following users, posting, and liking content. Next, we could add unit tests to verify each functionality if you're ready.
+
+To set up the database schema, we’ll create an SQL file that defines the necessary tables for our social media application. We’ll need tables for `User`, `Post`, `Like`, and a `User_Following` table to handle the many-to-many relationship between users (for following).
+
+Here's the SQL file (`schema.sql`), which you can execute in PostgreSQL to create the tables.
+
+```sql
+-- Create User Table
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Post Table
+CREATE TABLE posts (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    author_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+-- Create Like Table
+CREATE TABLE likes (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    post_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
+    UNIQUE (user_id, post_id)
+);
+
+-- Create User_Following Table (Self-referencing Many-to-Many)
+CREATE TABLE user_following (
+    follower_id INTEGER NOT NULL,
+    following_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (follower_id, following_id),
+    FOREIGN KEY (follower_id) REFERENCES users (id) ON DELETE CASCADE,
+    FOREIGN KEY (following_id) REFERENCES users (id) ON DELETE CASCADE
+);
+```
+
+### Explanation of Each Table
+
+1. **`users` Table**:
+   - Stores user data with a unique `username` and `email`.
+   - `created_at` field tracks when the user was added.
+
+2. **`posts` Table**:
+   - Each post has a `title`, `body`, and `author_id` (foreign key pointing to the `users` table).
+   - `created_at` field tracks when the post was created.
+   - On deleting a user, their posts will also be deleted (`ON DELETE CASCADE`).
+
+3. **`likes` Table**:
+   - Tracks which users liked which posts, with foreign keys for `user_id` and `post_id`.
+   - A unique constraint on `user_id` and `post_id` ensures each user can only like a post once.
+
+4. **`user_following` Table**:
+   - Handles the self-referencing many-to-many relationship for following other users.
+   - `follower_id` and `following_id` represent the following relationship, with a composite primary key on both fields.
+   - `ON DELETE CASCADE` ensures relationships are removed if a user is deleted.
+
+With this schema, your application should have the foundation it needs for user management, posts, likes, and following relationships. Let me know if you’re ready to set up the data source in Spring Boot or if you need more tables or fields!
