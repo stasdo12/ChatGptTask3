@@ -1,0 +1,275 @@
+To build a RESTful API for a simple social media application using Spring Boot, Hibernate, and PostgreSQL, we can follow these steps:
+
+### Step 1: Set up the Spring Boot Application
+
+1. **Create a new Spring Boot project:**
+   - You can use Spring Initializr to create the project, selecting dependencies such as:
+     - Spring Web
+     - Spring Data JPA
+     - PostgreSQL Driver
+     - Spring Boot DevTools (optional for development convenience)
+
+   Alternatively, if you are using Maven, here is a sample `pom.xml` setup:
+
+   ```xml
+   <dependencies>
+       <dependency>
+           <groupId>org.springframework.boot</groupId>
+           <artifactId>spring-boot-starter-web</artifactId>
+       </dependency>
+       <dependency>
+           <groupId>org.springframework.boot</groupId>
+           <artifactId>spring-boot-starter-data-jpa</artifactId>
+       </dependency>
+       <dependency>
+           <groupId>org.postgresql</groupId>
+           <artifactId>postgresql</artifactId>
+       </dependency>
+       <dependency>
+           <groupId>org.springframework.boot</groupId>
+           <artifactId>spring-boot-starter-validation</artifactId>
+       </dependency>
+   </dependencies>
+   ```
+
+2. **Configure `application.properties` for PostgreSQL:**
+   In your `src/main/resources/application.properties`, add:
+
+   ```properties
+   spring.datasource.url=jdbc:postgresql://localhost:5432/socialmedia
+   spring.datasource.username=postgres
+   spring.datasource.password=yourpassword
+   spring.jpa.hibernate.ddl-auto=update
+   spring.jpa.show-sql=true
+   ```
+
+   Ensure PostgreSQL is running locally or configure it for your environment.
+
+### Step 2: Create the User and Post Entity
+
+1. **User Entity:**
+   Create an entity to represent users. This will include basic fields like `id`, `username`, and `email`.
+
+   ```java
+   @Entity
+   public class User {
+
+       @Id
+       @GeneratedValue(strategy = GenerationType.IDENTITY)
+       private Long id;
+
+       @NotBlank
+       private String username;
+
+       @NotBlank
+       private String email;
+
+       @OneToMany(mappedBy = "author")
+       private List<Post> posts;
+
+       // Getters and setters...
+   }
+   ```
+
+2. **Post Entity:**
+   Create an entity for posts, with fields like `id`, `title`, `body`, and a reference to the user who created it.
+
+   ```java
+   @Entity
+   public class Post {
+
+       @Id
+       @GeneratedValue(strategy = GenerationType.IDENTITY)
+       private Long id;
+
+       @NotBlank
+       private String title;
+
+       @NotBlank
+       private String body;
+
+       @ManyToOne
+       @JoinColumn(name = "user_id")
+       private User author;
+
+       @ManyToMany
+       @JoinTable(
+           name = "post_likes",
+           joinColumns = @JoinColumn(name = "post_id"),
+           inverseJoinColumns = @JoinColumn(name = "user_id"))
+       private Set<User> likedBy;
+
+       // Getters and setters...
+   }
+   ```
+
+### Step 3: Create the Repositories
+
+1. **UserRepository:**
+
+   ```java
+   @Repository
+   public interface UserRepository extends JpaRepository<User, Long> {
+       Optional<User> findByUsername(String username);
+   }
+   ```
+
+2. **PostRepository:**
+
+   ```java
+   @Repository
+   public interface PostRepository extends JpaRepository<Post, Long> {
+       List<Post> findByAuthor(User author);
+   }
+   ```
+
+### Step 4: Create the Services
+
+1. **UserService:**
+   Create a service to manage user-related operations (e.g., register user, get user by username).
+
+   ```java
+   @Service
+   public class UserService {
+
+       @Autowired
+       private UserRepository userRepository;
+
+       public User registerUser(User user) {
+           return userRepository.save(user);
+       }
+
+       public Optional<User> getUserByUsername(String username) {
+           return userRepository.findByUsername(username);
+       }
+   }
+   ```
+
+2. **PostService:**
+   Create a service to handle operations related to posts (e.g., create post, like post, follow user).
+
+   ```java
+   @Service
+   public class PostService {
+
+       @Autowired
+       private PostRepository postRepository;
+
+       @Autowired
+       private UserService userService;
+
+       public Post createPost(Long userId, Post post) {
+           User user = userService.getUserById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+           post.setAuthor(user);
+           return postRepository.save(post);
+       }
+
+       public void likePost(Long userId, Long postId) {
+           Post post = postRepository.findById(postId).orElseThrow(() -> new RuntimeException("Post not found"));
+           User user = userService.getUserById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+           post.getLikedBy().add(user);
+           postRepository.save(post);
+       }
+   }
+   ```
+
+### Step 5: Create the Controllers
+
+1. **UserController:**
+   Create an API controller to manage users.
+
+   ```java
+   @RestController
+   @RequestMapping("/users")
+   public class UserController {
+
+       @Autowired
+       private UserService userService;
+
+       @PostMapping("/register")
+       public ResponseEntity<User> registerUser(@RequestBody User user) {
+           User newUser = userService.registerUser(user);
+           return ResponseEntity.status(HttpStatus.CREATED).body(newUser);
+       }
+   }
+   ```
+
+2. **PostController:**
+   Create an API controller for managing posts.
+
+   ```java
+   @RestController
+   @RequestMapping("/posts")
+   public class PostController {
+
+       @Autowired
+       private PostService postService;
+
+       @PostMapping("/{userId}/create")
+       public ResponseEntity<Post> createPost(@PathVariable Long userId, @RequestBody Post post) {
+           Post createdPost = postService.createPost(userId, post);
+           return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
+       }
+
+       @PostMapping("/{postId}/like/{userId}")
+       public ResponseEntity<Void> likePost(@PathVariable Long postId, @PathVariable Long userId) {
+           postService.likePost(userId, postId);
+           return ResponseEntity.status(HttpStatus.OK).build();
+       }
+   }
+   ```
+
+### Step 6: Test the Application
+
+1. **Test REST APIs:**
+   Use tools like Postman to test the API endpoints:
+   - Register a new user.
+   - Create a new post.
+   - Like a post.
+
+2. **Unit Tests:**
+   Create unit tests for the service layer and controllers using JUnit and Mockito.
+
+   Example:
+
+   ```java
+   @RunWith(SpringRunner.class)
+   @SpringBootTest
+   public class PostServiceTest {
+
+       @Mock
+       private PostRepository postRepository;
+
+       @Mock
+       private UserService userService;
+
+       @InjectMocks
+       private PostService postService;
+
+       @Test
+       public void testCreatePost() {
+           // Setup mocks and test createPost() method.
+       }
+   }
+   ```
+
+### Step 7: Document in `README.md`
+
+Include the following sections in the `README.md`:
+
+- Project Overview
+- Dependencies
+- How to run the application (including PostgreSQL setup)
+- API Documentation (using Swagger or manual documentation)
+- Testing instructions
+
+---
+
+### Short Feedback for the Task (Example)
+- **Was it easy to complete the task using AI?** Yes, the AI provided a structured approach to building the application with clear explanations.
+- **How long did task take you to complete?** It took about 4 hours to implement the basic functionality and test it.
+- **Was the code ready to run after generation? What did you have to change to make it usable?** The code was mostly ready. I had to modify some paths in the configuration and update the `application.properties` to match my local setup.
+- **Which challenges did you face during completion of the task?** The main challenge was setting up the PostgreSQL database and making sure the relationships in the entities were configured correctly.
+- **Which specific prompts you learned as a good practice to complete the task?** Using Spring Boot with PostgreSQL and ensuring proper entity relationships (e.g., `@ManyToOne`, `@ManyToMany`).
+
+Feel free to ask if you need further clarification on any of the steps!
